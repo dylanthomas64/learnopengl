@@ -1,14 +1,21 @@
-
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define _CRT_SECURE_NO_WARNINGS
+#include <stb_image.h>
+#include <stb_image_write.h>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include <stb_image.h>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <shader_s.h>
+#include <vector>
+#include <array>
+#include <iterator>
 
+#include <shader_s.h>
+#include <pixelsort.hpp>
 
 #include <iostream>
 
@@ -23,6 +30,13 @@ const unsigned int SCR_HEIGHT = 800;
 float last_time = 0.0;
 float delta_time = 0.0;
 float current_time = glfwGetTime();
+
+
+// must be 0-255
+// pixels outside of this range will not be sorted
+const unsigned int LIGHT_THRESHOLD_LOWER = 1;
+const unsigned int LIGHT_THRESHOLD_UPPER = 240;
+
 
 
 int main()
@@ -112,23 +126,9 @@ int main()
     // set texture filtering parameters
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    // load image, create texture and generate mipmaps
-    int width, height, nrChannels;
-    stbi_set_flip_vertically_on_load(true); // tell stb_image.h to flip loaded texture's on the y-axis.
-    // The FileSystem::getPath(...) is part of the GitHub repository so we can find files on any IDE/platform; replace it with your own image path.
-    unsigned char* data = stbi_load("learnopengl/textures/broadway.jpg", &width, &height, &nrChannels, 0);
-    if (data)
-    {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    }
-    else
-    {
-        std::cout << "Failed to load texture" << std::endl;
-    }
-    stbi_image_free(data);
 
     // texture 2
+    // ---------
     glGenTextures(1, &texture2);
     glBindTexture(GL_TEXTURE_2D, texture2);
     // set the texture wrapping parameters
@@ -137,28 +137,56 @@ int main()
     // set texture filtering parameters
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+
     // load image, create texture and generate mipmaps
+    int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(true); // tell stb_image.h to flip loaded texture's on the y-axis.
     // The FileSystem::getPath(...) is part of the GitHub repository so we can find files on any IDE/platform; replace it with your own image path.
-    data = stbi_load("learnopengl/textures/whitenoise.png", &width, &height, &nrChannels, 0);
+    unsigned char* data = stbi_load("learnopengl/textures/church.jpg", &width, &height, &nrChannels, 0); // force RGB
+
     if (data)
     {
-        glTexImage2D(GL_TEXTURE_2D, 1, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
+        std::vector<unsigned char> raw_pixel_vec = pixelsort(data, width, height, nrChannels, LIGHT_THRESHOLD_LOWER, LIGHT_THRESHOLD_UPPER);
+        if (stbi_write_png("out.png", width, height, nrChannels, data, width * nrChannels) != 0) {
+            std::cout << "error saving image" << std::endl;
+        }
+        
+        
+
+        if (nrChannels == 3) {
+            std::cout << "sorting complete. Creating textures...\n";
+            // generate original texture1
+            glBindTexture(GL_TEXTURE_2D, texture1);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            // generate sorted texture2
+            glBindTexture(GL_TEXTURE_2D, texture2);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, raw_pixel_vec.data());
+            glGenerateMipmap(GL_TEXTURE_2D);
+        }
+        else {
+            std::cout << "error: requires RGB.\n";
+        }
+        
     }
     else
     {
         std::cout << "Failed to load texture" << std::endl;
     }
     stbi_image_free(data);
-   
+
+   // unsigned int pixelbuf[];
+    //glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, &pixelbuf);
+
 
     // tell opengl for each sampler to which texture unit it belongs to (only has to be done once)
     // -------------------------------------------------------------------------------------------
     ourShader.use(); // don't forget to activate/use the shader before setting uniforms!
     // either set it manually like so:
-    glUniform1i(glGetUniformLocation(ourShader.ID, "texture1"), 0);
+    //glUniform1i(glGetUniformLocation(ourShader.ID, "texture1"), 0);
     // or set it via the texture class
+    ourShader.setInt("texture1", 0);
     ourShader.setInt("texture2", 1);
 
     glEnable(GL_DEPTH_TEST);
@@ -179,6 +207,8 @@ int main()
         // bind textures on corresponding texture units
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture1);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, texture2);
 
         // create transformations
         glm::mat4 model = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
@@ -198,14 +228,13 @@ int main()
 
         // set delta time
         current_time = glfwGetTime();
-        delta_time = current_time - last_time;
-        last_time = current_time;
-        ourShader.setFloat("delta_time", glfwGetTime());
 
         float x_offset = glm::sin(glfwGetTime());
         float y_offset = glm::cos(glfwGetTime());
+        float blend = (glm::sin(glfwGetTime()) + 1.0) / 2.0;
         ourShader.setFloat("x_offset", x_offset);
         ourShader.setFloat("y_offset", y_offset);
+        ourShader.setFloat("blend", blend);
 
         // render container
         ourShader.use();
