@@ -11,7 +11,6 @@ uniform mat4 projection;
 
 uniform float x_offset;
 uniform float y_offset;
-uniform float delta_time;
 
 uniform sampler2D texture2;
 
@@ -19,17 +18,17 @@ uniform sampler2D texture2;
 void main()
 {
 	// value 0.0 - 1.0
-	float intensity = texture(texture2, aTexCoord).r;
+	//float intensity = texture(texture2, aTexCoord).r;
 	// value -1.0 - 1.0
-	intensity = (intensity * 2) - 1;
+	//intensity = (intensity * 2) - 1;
 
 
-	vec3 newPos = aPos;
+	//vec3 newPos = aPos;
 
-	newPos.x += (intensity + sin(delta_time))/100;
-	newPos.y += (intensity + cos(delta_time))/100;
+	//newPos.x += (intensity + sin(delta_time))/100;
+	//newPos.y += (intensity + cos(delta_time))/100;
 
-    gl_Position = projection * view * model * vec4(newPos, 1.0);
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
 	
 	
 	TexCoord = vec2(aTexCoord.x, aTexCoord.y);
